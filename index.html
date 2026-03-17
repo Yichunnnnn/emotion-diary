@@ -1,0 +1,2113 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <title>Mood Galaxy - 情绪日记 (Split View)</title>
+
+  <style>
+    /* =========================================================
+      1. 基础 UI 样式
+      - body 黑色背景、禁止滚动
+      - #ui-layer 作为 UI 覆盖层（pointer-events 默认 none）
+    ========================================================= */
+    body {
+      margin: 0;
+      overflow: hidden;
+      background-color: #050505;
+      font-family: 'Helvetica Neue', 'PingFang SC', sans-serif;
+      user-select: none;
+    }
+
+    /* UI 覆盖层：居中布局、默认不接收鼠标（子元素可单独开启） */
+    #ui-layer {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+    }
+
+    /* =========================================================
+      2. 选择面板 (银河界面)
+      - 进入页面时显示，用于选择情绪按钮
+      - hidden 类用于渐隐 + 禁用点击
+    ========================================================= */
+    #selection-panel {
+      pointer-events: auto; /* 允许点击 */
+      text-align: center;
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(15px);
+      padding: 50px 70px;
+      border-radius: 24px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      box-shadow: 0 0 50px rgba(0,0,0,0.5);
+      transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+      opacity: 1;
+      position: relative;
+      transform: scale(1);
+    }
+
+    /* 面板隐藏态：淡出、不可点击、下移缩放 */
+    #selection-panel.hidden {
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(30px) scale(0.9);
+    }
+
+    /* 面板右上角关闭按钮 */
+    .close-panel-btn {
+      position: absolute;
+      top: 20px; right: 20px;
+      background: transparent;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 50%;
+      width: 32px; height: 32px;
+      color: rgba(255,255,255,0.6);
+      font-size: 1rem;
+      cursor: pointer;
+      transition: all 0.3s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .close-panel-btn:hover {
+      color: #fff;
+      background: rgba(255,255,255,0.2);
+      border-color: rgba(255,255,255,0.4);
+      transform: rotate(90deg);
+    }
+
+    /* 标题 */
+    h1 {
+      color: #fff;
+      font-weight: 200;
+      font-size: 2.5rem;
+      margin-bottom: 40px;
+      margin-top: 10px;
+      letter-spacing: 4px;
+      text-shadow: 0 0 15px rgba(255,255,255,0.6);
+    }
+
+    /* 情绪按钮 */
+    .mood-btn {
+      background: transparent;
+      border: 1px solid rgba(255,255,255,0.3);
+      color: #fff;
+      padding: 12px 30px;
+      margin: 0 10px;
+      font-size: 1rem;
+      cursor: pointer;
+      border-radius: 50px;
+      transition: all 0.4s;
+      letter-spacing: 1px;
+    }
+    .mood-btn:hover {
+      background: #fff;
+      color: #000;
+      box-shadow: 0 0 25px rgba(255,255,255,0.5);
+      transform: translateY(-3px);
+    }
+
+    /* =========================================================
+      右上角“恢复面板”按钮
+      - 面板隐藏后显示（visible 类）
+    ========================================================= */
+    #restore-ui-btn {
+      position: absolute;
+      top: 30px; right: 30px;
+      pointer-events: auto;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: rgba(255, 255, 255, 0.8);
+      width: 44px; height: 44px;
+      border-radius: 50%;
+      cursor: pointer;
+      z-index: 30;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      font-size: 1.4rem;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(-20px) scale(0.8);
+    }
+    #restore-ui-btn.visible {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateY(0) scale(1);
+    }
+    #restore-ui-btn:hover {
+      background: rgba(255, 255, 255, 0.25);
+      color: #fff;
+      box-shadow: 0 0 20px rgba(255,255,255,0.4);
+    }
+
+    /* =========================================================
+      3. 原有控制面板 (全屏模式显示)
+      - 星球模式时显示（#controls.active）
+      - 分屏模式会被隐藏（由 enableSplitMode 控制）
+    ========================================================= */
+    #controls {
+      position: absolute;
+      bottom: 80px; right: 40px;
+      width: 260px;
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(8px);
+      padding: 20px;
+      border-radius: 15px;
+      border: 1px solid rgba(255,255,255,0.1);
+      color: #fff;
+      opacity: 0;
+      pointer-events: auto;
+      transform: translateX(50px);
+      transition: all 0.8s ease;
+      display: none;
+      z-index: 20;
+    }
+    #controls.active {
+      opacity: 1;
+      transform: translateX(0);
+      display: block;
+    }
+
+    .control-group { margin-bottom: 15px; }
+    .control-group label {
+      display: block;
+      font-size: 0.8rem;
+      margin-bottom: 8px;
+      color: rgba(255,255,255,0.8);
+    }
+
+    /* “情绪浓度”标签追加提示 (Music Control) */
+    #color-group label::after {
+      content: " (Music Control)";
+      font-size: 0.6rem;
+      color: #ffeb3b;
+      margin-left: 5px;
+      opacity: 0.8;
+    }
+
+    /* range 输入的统一样式 */
+    input[type=range] { -webkit-appearance: none; width: 100%; background: transparent; }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      height: 16px; width: 16px;
+      border-radius: 50%;
+      background: #fff;
+      cursor: pointer;
+      margin-top: -6px;
+    }
+    input[type=range]::-webkit-slider-runnable-track {
+      width: 100%;
+      height: 4px;
+      cursor: pointer;
+      background: rgba(255,255,255,0.3);
+      border-radius: 2px;
+    }
+
+    /* =========================================================
+      4. 状态栏与导航
+      - 默认位于底部居中
+      - 分屏模式下会被 append 到右侧面板滑条下
+    ========================================================= */
+    #status-bar {
+      position: absolute;
+      bottom: 30px;
+      width: 100%;
+      text-align: center;
+      color: rgba(255,255,255,0.6);
+      font-size: 0.9rem;
+      letter-spacing: 2px;
+      opacity: 0;
+      transition: opacity 1s;
+      z-index: 15;
+    }
+
+    /* 分屏模式下：取消绝对定位并强制显示 */
+    #status-bar.split-mode {
+      position: static;
+      margin-top: 30px;
+      bottom: auto;
+      width: 100%;
+      opacity: 1 !important;
+      transform: none;
+    }
+
+    /* 音乐阶段提示行 */
+    #music-stage-indicator {
+      display: block;
+      font-size: 0.7rem;
+      color: #aaa;
+      margin-top: 5px;
+    }
+
+    /* 返回按钮：从星球模式回到银河主界面 */
+    #back-btn {
+      position: absolute;
+      top: 30px; left: 30px;
+      pointer-events: auto;
+      color: rgba(255,255,255,0.5);
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 1rem;
+      display: none;
+      z-index: 20;
+      transition: color 0.3s;
+    }
+    #back-btn:hover { color: #fff; }
+
+    /* three.js 主渲染容器 */
+    #canvas-container {
+      position: absolute;
+      top: 0; left: 0;
+      z-index: 1;
+      transition: width 0.5s ease;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* 相机提示 */
+    #camera-hint {
+      position: absolute;
+      top: 80px; right: 30px;
+      color: rgba(255,255,255,0.4);
+      font-size: 0.8rem;
+      pointer-events: none;
+      transition: opacity 0.5s;
+      z-index: 15;
+      opacity: 0;
+    }
+    #camera-hint.show { opacity: 1; }
+
+    /* =========================================================
+      5. 分屏右侧面板
+      - 命名虽然是 right-split-panel，但它固定在左侧 left:40px，
+        宽度 50%，用于展示照片粒子云 + 右侧滑条（你这里是“右侧面板”）
+      - 注意：本面板 display:none，启用分屏后才显示
+    ========================================================= */
+    #right-split-panel {
+      position: absolute;
+      top: 100px; left: 40px;
+      width: 50%; height: 80%;
+      background-color: transparent;
+      z-index: 50;
+      display: none;
+      flex-direction: column;
+      justify-content: flex-end;
+      align-items: center;
+      padding: 30px;
+      box-sizing: border-box;
+      backdrop-filter: blur(8px);
+      border-radius: 24px;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    /* 分屏面板关闭按钮 */
+    .split-close-btn {
+      position: absolute;
+      top: 15px; right: 15px;
+      background: transparent;
+      box-shadow: none;
+      border: 1px solid rgba(255,255,255,0.2);
+      width: 30px; height: 30px;
+      border-radius: 50%;
+      color: rgba(255,255,255,0.6);
+      cursor: pointer;
+      font-size: 1.2rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.3s;
+      pointer-events: auto;
+    }
+    .split-close-btn:hover { color: #fff; border-color: #fff; background: rgba(255,255,255,0.1); }
+
+    /* 分屏面板中的滑条容器：用于入场动画 */
+    .right-slider-container {
+      margin-bottom: 10px;
+      color: #fff;
+      opacity: 0;
+      transform: translateY(20px);
+      transition: all 0.8s ease 0.2s;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+    }
+    #right-split-panel.active .right-slider-container {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* 右侧照片/粒子云容器（渲染器会 append 到这里） */
+    #mood-photo-container {
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      margin-bottom: 10px;
+      overflow: hidden;
+      position: relative;
+      box-shadow: none;
+      background: transparent;
+      border: none;
+    }
+  </style>
+
+  <!-- three.js 库（r128） -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+
+<body>
+  <!-- 右上角：恢复选择面板按钮（仅在面板隐藏时出现） -->
+  <button id="restore-ui-btn" onclick="toggleSelectionPanel()" title="显示面板">⟲</button>
+
+  <!-- UI 覆盖层 -->
+  <div id="ui-layer">
+    <!-- 选择面板：情绪按钮 -->
+    <div id="selection-panel">
+      <button class="close-panel-btn" onclick="toggleSelectionPanel()" title="隐藏面板，欣赏银河">✕</button>
+
+      <h1>今天过得怎么样？</h1>
+      <div>
+        <!-- 点击按钮会创建“情绪星球”并进入星球模式 -->
+        <button class="mood-btn" onclick="createMoodPlanet('bad')">不大好</button>
+        <button class="mood-btn" onclick="createMoodPlanet('flat')">很平淡</button>
+        <button class="mood-btn" onclick="createMoodPlanet('good')">感觉好极了</button>
+        <button class="mood-btn" onclick="createMoodPlanet('mad')">非常愤怒</button>
+        <button class="mood-btn" onclick="createMoodPlanet('fear')">有点担心</button>
+      </div>
+    </div>
+
+    <!-- 原有控制面板：全屏星球模式时显示 -->
+    <div id="controls">
+      <div class="control-group">
+        <label>粒子数量 (Particle Count)</label>
+        <input type="range" id="count-slider" min="10000" max="100000" step="1000" value="40000">
+      </div>
+      <div class="control-group">
+        <label>色相偏移 (Hue Shift)</label>
+        <input type="range" id="hue-slider" min="0" max="1" step="0.01" value="0">
+      </div>
+      <div class="control-group">
+        <label>星球大小 (Size)</label>
+        <input type="range" id="size-slider" min="0.5" max="2.0" step="0.1" value="1.0">
+      </div>
+      <div class="control-group">
+        <label>星环/密度 (Ring Density)</label>
+        <input type="range" id="ring-slider" min="0" max="2.5" step="0.1" value="1.0">
+      </div>
+      <div class="control-group" id="color-group">
+        <label>情绪浓度 & 音乐 (Intensity)</label>
+        <input type="range" id="color-slider" min="0.1" max="1.6" step="0.05" value="0.6">
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================
+    分屏右侧面板：
+    - mood-photo-container：右侧(你这里的面板中)展示“图片采样后的粒子云”
+    - right-color-slider：与主 color-slider 双向同步
+  ========================================================= -->
+  <div id="right-split-panel">
+    <button class="split-close-btn" onclick="disableSplitMode()" title="关闭分屏">✕</button>
+
+    <div id="mood-photo-container">
+      <!-- photoRenderer 的 canvas 会 append 到这里 -->
+    </div>
+
+    <div class="right-slider-container">
+      <div class="control-group" style="width: 80%;">
+        <label style="font-size: 1.2rem; margin-bottom: 10px;">情绪浓度 & 音乐 (Intensity)</label>
+        <input type="range" id="right-color-slider" min="0.1" max="1.6" step="0.05" value="0.6">
+      </div>
+    </div>
+  </div>
+
+  <!-- 状态栏：显示情绪文案 + 音乐阶段 -->
+  <div id="status-bar">
+    <span id="song-title">Waiting for selection...</span>
+    <span id="music-stage-indicator"></span>
+  </div>
+
+  <!-- 返回按钮：存入银河，记录新的一天（把星球保存为小行星/小星球） -->
+  <button id="back-btn" onclick="resetView()">← 存入银河，记录新的一天</button>
+
+  <!-- 提示：双击粒子飘散，点击播放背景音 -->
+  <div id="camera-hint">双击空白处粒子飘散 | 点击任意位置播放背景音</div>
+
+  <!-- three.js 主 canvas 容器 -->
+  <div id="canvas-container"></div>
+
+  <script>
+    /* =========================================================
+      全局变量（主场景：银河/星球）
+    ========================================================= */
+    let scene, camera, renderer;
+    let galaxyParticles;       // 背景银河粒子（Points）
+    let butterflies = [];      // 蝴蝶对象数组（Group + 动画参数）
+
+    let planetParticles;       // 当前情绪星球的粒子（Points）
+    let ringParticles;         // 当前星球的星环粒子（Points）
+    let planetGeometry, ringGeometry;
+
+    let savedPlanets = [];     // “存入银河”的历史星球（Group 形式）
+
+    /* =========================================================
+      音频相关（three.js Audio + Analyser）
+    ========================================================= */
+    let listener, sound, audioLoader, analyser;
+    let bgMusic;               // 银河背景音乐（单独 Audio）
+    let isPlanetMode = false;  // 是否处于星球模式（进入某个情绪）
+
+    /* =========================================================
+      右侧“照片粒子云”相关（独立场景 + 独立 renderer）
+    ========================================================= */
+    let photoScene, photoCamera, photoRenderer, photoParticles;
+    let photoTargetPositions = []; // 你预留的“目标位置”，目前未使用（可用于形变过渡）
+
+    /* 鼠标交互：用于右侧照片粒子云的“排斥/散射” */
+    let photoMouse = new THREE.Vector2(-999, -999); // NDC 坐标，默认远离画布
+    let photoRaycaster = new THREE.Raycaster();     // 将 2D 鼠标投射到 3D 平面
+
+    /* =========================================================
+      分屏模式开关
+    ========================================================= */
+    let isSplitMode = false;
+
+    /* =========================================================
+      状态：当前情绪 + 粒子数量 + 当前渐变色
+    ========================================================= */
+    let currentMood = '';
+    let currentParticleCount = 40000;
+    let currentColorStart = new THREE.Color();
+    let currentColorEnd = new THREE.Color();
+
+    /* =========================================================
+      音乐阶段：Intensity 滑条会切换 1/2/3 段音乐
+    ========================================================= */
+    let currentMusicStage = 1;
+    let isChangingMusic = false;
+
+    /* =========================================================
+      爆炸/回收动画（双击触发）
+    ========================================================= */
+    let isExploding = false;
+    let isReturning = false;
+    let explosionFactor = 0;
+
+    /* =========================================================
+      相机控制（鼠标拖拽旋转 + 滚轮缩放）
+    ========================================================= */
+    let isMouseDown = false;
+    let mouseX = 0, mouseY = 0;
+    let cameraAngleX = 0, cameraAngleY = 0;
+    let cameraDistance = 100;
+    const CAMERA_TARGET = new THREE.Vector3(0, 0, 0);
+    const ROTATE_SPEED = 0.005;
+    const ZOOM_SPEED = 0.1;
+    const MIN_DISTANCE = 30;
+    const MAX_DISTANCE = 200;
+
+    /* =========================================================
+      “存入银河”时：避免星球之间太近的安全距离参数
+    ========================================================= */
+    const SAFE_DISTANCE = 50;
+    const MAX_POSITION_ATTEMPTS = 50;
+
+    /* =========================================================
+      每种情绪：颜色、星环色、文案、音乐（3段）与图片（3张）
+    ========================================================= */
+    const MOOD_DATA = {
+      'bad': {
+        c1: 0x1611a8, c2: 0x48a5df,
+        ringColorInner: 0x2196F3, ringColorOuter: 0x9C27B0,
+        name: 'BAD：别担心，一切都会好起来的',
+        files: ['./musics/bad.mp3', './musics/bad_2.mp3', './musics/bad_3.mp3'],
+        images: ['./images/bad_1.png', './images/bad_2.png', './images/bad_3.png']
+      },
+      'flat': {
+        c1: 0xFFDC00, c2: 0xFF851B,
+        ringColorInner: 0xFFFF00, ringColorOuter: 0xFF9800,
+        name: 'FLAT：平静且美好',
+        files: ['./musics/flat.mp3', './musics/flat_2.mp3', './musics/flat_3.mp3'],
+        images: ['./images/flat_1.png', './images/flat_2.png', './images/flat_3.png']
+      },
+      'good': {
+        c1: 0xe75858, c2: 0xc651b1,
+        ringColorInner: 0xFF9800, ringColorOuter: 0xFF0000,
+        name: 'GOOD：享受当下',
+        files: ['./musics/good.mp3', './musics/good_2.mp3', './musics/good_3.mp3'],
+        images: ['./images/good_1.png', './images/good_2.png', './images/good_3.png']
+      },
+      'mad': {
+        c1: 0xdd3a3a, c2: 0xdd7451,
+        ringColorInner: 0xFF0000, ringColorOuter: 0x800080,
+        name: 'MAD：无须在意',
+        files: ['./musics/mad.mp3', './musics/mad_2.mp3', './musics/mad_3.mp3'],
+        images: ['./images/mad_1.png', './images/mad_2.png', './images/mad_3.png']
+      },
+      'fear': {
+        c1: 0x84d58d, c2: 0x586d1f,
+        ringColorInner: 0x4CAF50, ringColorOuter: 0x2196F3,
+        name: 'FEAR：最好的安排',
+        files: ['./musics/fear.mp3', './musics/fear_2.mp3', './musics/fear_3.mp3'],
+        images: ['./images/fear_1.png', './images/fear_2.png', './images/fear_3.png']
+      }
+    };
+
+    /* =========================================================
+      入口：初始化 + 相机交互 + 动画循环 + UI 控件
+    ========================================================= */
+    init();
+    setupCameraControls();
+    animate();
+    setupControls();
+
+    /* =========================================================
+      init(): 创建 three.js 主场景、相机、renderer、音频系统
+      并建立：
+      - 银河背景粒子
+      - 蝴蝶粒子（2D shape mesh + 发光 sprite）
+      - resize/dblclick 监听
+      - 右侧“照片粒子云”渲染器初始化
+    ========================================================= */
+    function init() {
+      const container = document.getElementById('canvas-container');
+
+      // 主 3D 场景 + 雾效
+      scene = new THREE.Scene();
+      scene.fog = new THREE.FogExp2(0x050505, 0.002);
+
+      // 主相机：透视相机，z=100
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+      camera.position.z = cameraDistance;
+
+      // 主 renderer：alpha=true 允许透明
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(window.devicePixelRatio);
+      container.appendChild(renderer.domElement);
+
+      // three.js 音频：listener 挂到相机上
+      listener = new THREE.AudioListener();
+      camera.add(listener);
+
+      // sound：用于播放情绪音乐（stage 1/2/3）
+      sound = new THREE.Audio(listener);
+      audioLoader = new THREE.AudioLoader();
+
+      // analyser：用于获取音乐平均频率驱动粒子呼吸/抖动
+      analyser = new THREE.AudioAnalyser(sound, 128);
+
+      /* ---------------------------------------------------------
+        背景音乐 BGM：第一次用户交互(点击/触摸)后才允许播放（浏览器策略）
+        - 银河模式播放 bgMusic
+        - 星球模式停止 bgMusic，播放 sound（情绪音乐）
+      --------------------------------------------------------- */
+      const startBGM = () => {
+        if (listener.context.state === 'suspended') listener.context.resume();
+
+        if (!bgMusic) {
+          bgMusic = new THREE.Audio(listener);
+          audioLoader.load('./musics/bgmusic.mp3', function(buffer) {
+            bgMusic.setBuffer(buffer);
+            bgMusic.setLoop(true);
+            bgMusic.setVolume(0.1);
+            if (!isPlanetMode) bgMusic.play();
+          });
+        } else if (!bgMusic.isPlaying && !isPlanetMode) {
+          bgMusic.play();
+        }
+
+        // 只触发一次
+        window.removeEventListener('click', startBGM);
+        window.removeEventListener('touchstart', startBGM);
+      };
+      window.addEventListener('click', startBGM);
+      window.addEventListener('touchstart', startBGM);
+
+      // 创建银河背景 + 蝴蝶
+      createGalaxyBackground();
+      createButterflies();
+
+      // 响应窗口尺寸变化
+      window.addEventListener('resize', onWindowResize, false);
+
+      // UI 提示：一开始显示 5 秒
+      setTimeout(() => {
+        document.getElementById('camera-hint').classList.add('show');
+        setTimeout(() => {
+          document.getElementById('camera-hint').classList.remove('show');
+        }, 5000);
+      }, 1000);
+
+      // 双击：在星球模式触发“爆炸/散开”动画
+      window.addEventListener('dblclick', () => {
+        if (isPlanetMode && planetParticles && !isExploding && !isReturning) {
+          isExploding = true;
+        }
+      });
+
+      // 初始化右侧“照片粒子云”渲染器（独立场景）
+      initPhotoRenderer();
+    }
+
+    /* =========================================================
+      initPhotoRenderer(): 初始化右侧照片粒子云场景
+      - 使用独立 camera + renderer 渲染到 #mood-photo-container
+      - 并监听鼠标移动，将鼠标映射到 NDC，供排斥效果使用
+    ========================================================= */
+    function initPhotoRenderer() {
+      const container = document.getElementById('mood-photo-container');
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+
+      photoScene = new THREE.Scene();
+      photoCamera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+      photoCamera.position.z = 150;
+
+      photoRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      photoRenderer.setSize(width, height);
+      photoRenderer.setPixelRatio(window.devicePixelRatio);
+      photoRenderer.setClearColor(0x000000, 0); // 透明背景
+      container.appendChild(photoRenderer.domElement);
+
+      // 鼠标移动：转为 NDC 坐标（[-1,1]）
+      container.addEventListener('mousemove', (e) => {
+        const rect = container.getBoundingClientRect();
+        photoMouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        photoMouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      });
+
+      // 鼠标离开：设为无效值，避免一直排斥
+      container.addEventListener('mouseleave', () => {
+        photoMouse.set(-999, -999);
+      });
+    }
+
+    /* =========================================================
+      分屏模式启用：
+      - 显示 #right-split-panel
+      - 隐藏原 controls
+      - 把 status-bar DOM 移到右侧滑条容器下方
+      - 同步右侧 intensity 滑条值
+      - updateLayoutSize() 进行视口偏移（星球显示在左半区）
+    ========================================================= */
+    function enableSplitMode() {
+      isSplitMode = true;
+
+      const rightPanel = document.getElementById('right-split-panel');
+      const controls = document.getElementById('controls');
+      const statusBar = document.getElementById('status-bar');
+      const rightSliderContainer = document.querySelector('.right-slider-container');
+
+      // 显示右侧面板（用 class 做进入动画）
+      rightPanel.style.display = 'flex';
+      setTimeout(() => rightPanel.classList.add('active'), 10);
+
+      // 隐藏原有浮动控件（全屏控件）
+      controls.classList.remove('active');
+      controls.style.display = 'none';
+
+      // 将状态栏移动到右侧面板内（DOM 迁移）
+      rightSliderContainer.appendChild(statusBar);
+      statusBar.classList.add('split-mode');
+
+      // 同步滑条
+      document.getElementById('right-color-slider').value =
+        document.getElementById('color-slider').value;
+
+      // 更新布局（主渲染依然全屏，但相机做 viewOffset）
+      updateLayoutSize();
+    }
+
+    /* =========================================================
+      关闭分屏模式：
+      - 隐藏右侧面板
+      - status-bar 移回 body
+      - 若当前仍在星球模式：恢复 controls
+      - reset viewOffset
+    ========================================================= */
+    function disableSplitMode() {
+      isSplitMode = false;
+
+      const rightPanel = document.getElementById('right-split-panel');
+      const controls = document.getElementById('controls');
+      const statusBar = document.getElementById('status-bar');
+
+      rightPanel.classList.remove('active');
+      setTimeout(() => rightPanel.style.display = 'none', 300);
+
+      // 状态栏移回 body
+      document.body.appendChild(statusBar);
+      statusBar.classList.remove('split-mode');
+
+      // 如果仍是星球模式，则恢复原 controls
+      if (isPlanetMode) {
+        controls.style.display = 'block';
+        setTimeout(() => controls.classList.add('active'), 10);
+      }
+
+      updateLayoutSize();
+    }
+
+    /* =========================================================
+      updateLayoutSize():
+      - 主渲染器始终全屏 setSize
+      - 分屏模式下：通过 camera.setViewOffset 偏移投影矩阵
+        让“星球看起来居中显示在左侧 50% 区域”
+      - 同时更新 photoRenderer 的尺寸与 camera aspect
+    ========================================================= */
+    function updateLayoutSize() {
+      const fullWidth = window.innerWidth;
+      const fullHeight = window.innerHeight;
+
+      renderer.setSize(fullWidth, fullHeight);
+      camera.aspect = fullWidth / fullHeight;
+
+      if (isSplitMode) {
+        // 注意：setViewOffset 参数是“完整视口大小 + 偏移 + 当前视口尺寸”
+        // 这里用负偏移把主视图挪向左侧
+        camera.setViewOffset(
+          fullWidth, fullHeight,
+          -fullWidth * 0.25, 0,
+          fullWidth, fullHeight
+        );
+      } else {
+        camera.clearViewOffset();
+      }
+
+      camera.updateProjectionMatrix();
+
+      // 更新右侧照片粒子云 renderer 尺寸
+      if (photoRenderer) {
+        const photoContainer = document.getElementById('mood-photo-container');
+        if (photoContainer) {
+          photoRenderer.setSize(photoContainer.clientWidth, photoContainer.clientHeight);
+          photoCamera.aspect = photoContainer.clientWidth / photoContainer.clientHeight;
+          photoCamera.updateProjectionMatrix();
+        }
+      }
+    }
+
+    function onWindowResize() {
+      updateLayoutSize();
+    }
+
+    /* =========================================================
+      toggleSelectionPanel(): 切换情绪选择面板显示/隐藏
+      - 隐藏时显示右上角 restore 按钮
+    ========================================================= */
+    function toggleSelectionPanel() {
+      const panel = document.getElementById('selection-panel');
+      const restoreBtn = document.getElementById('restore-ui-btn');
+      const isHidden = panel.classList.toggle('hidden');
+
+      if (isHidden) restoreBtn.classList.add('visible');
+      else restoreBtn.classList.remove('visible');
+    }
+
+    /* =========================================================
+      createGlowTexture(): 为蝴蝶发光 sprite 制作径向渐变纹理
+    ========================================================= */
+    function createGlowTexture() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 64; canvas.height = 64;
+      const ctx = canvas.getContext('2d');
+
+      const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+      gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+      gradient.addColorStop(0.2, 'rgba(255, 255, 255, 0.8)');
+      gradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.2)');
+      gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, 64, 64);
+
+      return new THREE.CanvasTexture(canvas);
+    }
+
+    /* =========================================================
+      createButterflies(): 生成蝴蝶（Group）
+      - 每只蝴蝶由左右翼（ShapeGeometry Mesh）+ glow sprite
+      - 存入 butterflies 数组，后续 updateButterflies() 更新运动
+    ========================================================= */
+    function createButterflies() {
+      const butterflyCount = 30;
+
+      // 翅膀 2D 形状
+      const wingShape = new THREE.Shape();
+      wingShape.moveTo(0, 0);
+      wingShape.bezierCurveTo(0.5, 0.5, 1.2, 0.8, 1.2, 0.2);
+      wingShape.bezierCurveTo(1.2, -0.2, 0.8, -0.5, 0, -0.2);
+      wingShape.moveTo(0, -0.2);
+      wingShape.bezierCurveTo(0.5, -0.5, 0.6, -1.0, 0.2, -1.2);
+      wingShape.bezierCurveTo(-0.1, -1.2, -0.2, -0.8, 0, 0);
+
+      const geometry = new THREE.ShapeGeometry(wingShape);
+
+      const material = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 1,
+        blending: THREE.AdditiveBlending
+      });
+
+      const glowMaterial = new THREE.SpriteMaterial({
+        map: createGlowTexture(),
+        color: 0xffffff,
+        transparent: true,
+        opacity: 1,
+        blending: THREE.AdditiveBlending
+      });
+
+      for (let i = 0; i < butterflyCount; i++) {
+        const group = new THREE.Group();
+
+        // 左翼：翻转 scale.x
+        const leftWing = new THREE.Mesh(geometry, material);
+        leftWing.scale.set(-1, 1, 1);
+        leftWing.rotation.z = 0.2;
+
+        // 右翼
+        const rightWing = new THREE.Mesh(geometry, material);
+        rightWing.rotation.z = -0.2;
+
+        group.add(leftWing);
+        group.add(rightWing);
+
+        // 发光 sprite
+        const glowSprite = new THREE.Sprite(glowMaterial);
+        glowSprite.scale.set(4, 4, 1);
+        glowSprite.position.set(0, 0, -0.1);
+        group.add(glowSprite);
+
+        // 随机缩放与初始位置
+        const s = 0.6 + Math.random() * 0.6;
+        group.scale.set(s, s, s);
+
+        const range = 250;
+        const x = (Math.random() - 0.5) * range;
+        const y = (Math.random() - 0.5) * range * 0.6;
+        const z = (Math.random() - 0.5) * range;
+
+        group.position.set(x, y, z);
+        group.rotation.y = Math.random() * Math.PI * 2;
+
+        scene.add(group);
+
+        // 保存该蝴蝶的运动参数
+        butterflies.push({
+          mesh: group,
+          leftWing: leftWing,
+          rightWing: rightWing,
+          glow: glowSprite,
+          flapSpeed: 0.1 + Math.random() * 0.1,
+          floatSpeed: 0.02 + Math.random() * 0.04,
+          phase: Math.random() * Math.PI * 2,
+          direction: new THREE.Vector3(
+            Math.random()-0.5,
+            Math.random()-0.5,
+            Math.random()-0.5
+          ).normalize()
+        });
+      }
+    }
+
+    /* =========================================================
+      updateButterflies(): 蝴蝶动画
+      - 翅膀拍动：sin 波
+      - 漂移：direction * floatSpeed
+      - 边界反弹 + 朝向平滑插值（slerp）
+    ========================================================= */
+    function updateButterflies() {
+      const time = Date.now() * 0.005;
+
+      butterflies.forEach(b => {
+        const flap = Math.sin(time * 3 * b.flapSpeed + b.phase);
+
+        // 翅膀开合
+        b.leftWing.rotation.y = THREE.MathUtils.mapLinear(flap, -1, 1, -0.2, 1.0);
+        b.rightWing.rotation.y = THREE.MathUtils.mapLinear(flap, -1, 1, 0.2, -1.0);
+
+        // 发光强度随拍动轻微变化
+        b.glow.material.opacity = 0.5 + flap * 0.1;
+
+        // 漂移
+        b.mesh.position.add(b.direction.clone().multiplyScalar(b.floatSpeed));
+
+        // 边界反弹
+        const limit = 200;
+        if (Math.abs(b.mesh.position.x) > limit) b.direction.x *= -1;
+        if (Math.abs(b.mesh.position.y) > limit/2) b.direction.y *= -1;
+        if (Math.abs(b.mesh.position.z) > limit) b.direction.z *= -1;
+
+        // 朝向：让蝴蝶朝向运动方向
+        const targetPos = b.mesh.position.clone().add(b.direction);
+        const targetQuaternion = new THREE.Quaternion().setFromRotationMatrix(
+          new THREE.Matrix4().lookAt(targetPos, b.mesh.position, new THREE.Vector3(0,1,0))
+        );
+        b.mesh.quaternion.slerp(targetQuaternion, 0.02);
+      });
+    }
+
+    /* =========================================================
+      setupCameraControls(): 主相机交互
+      - mousedown + mousemove：绕中心旋转
+      - wheel：缩放（cameraDistance）
+    ========================================================= */
+    function setupCameraControls() {
+      const canvas = renderer.domElement;
+
+      canvas.addEventListener('mousedown', (e) => {
+        isMouseDown = true;
+        mouseX = e.clientX;
+        mouseY = e.clientY;
+        document.getElementById('camera-hint').classList.add('show');
+      });
+
+      document.addEventListener('mousemove', (e) => {
+        if (isMouseDown) {
+          const deltaX = e.clientX - mouseX;
+          const deltaY = e.clientY - mouseY;
+
+          cameraAngleY += deltaX * ROTATE_SPEED;
+          cameraAngleX += deltaY * ROTATE_SPEED;
+
+          // 限制竖向角度，避免翻转
+          cameraAngleX = Math.max(-Math.PI/2, Math.min(Math.PI/2, cameraAngleX));
+
+          mouseX = e.clientX;
+          mouseY = e.clientY;
+
+          updateCameraPosition();
+        }
+      });
+
+      document.addEventListener('mouseup', () => {
+        isMouseDown = false;
+        setTimeout(() => {
+          document.getElementById('camera-hint').classList.remove('show');
+        }, 1000);
+      });
+
+      document.addEventListener('wheel', (e) => {
+        e.preventDefault();
+
+        cameraDistance += e.deltaY * ZOOM_SPEED;
+        cameraDistance = Math.max(MIN_DISTANCE, Math.min(MAX_DISTANCE, cameraDistance));
+
+        updateCameraPosition();
+      }, { passive: false });
+    }
+
+    /* 根据球坐标计算相机位置，并看向中心点 */
+    function updateCameraPosition() {
+      camera.position.x = cameraDistance * Math.sin(cameraAngleY) * Math.cos(cameraAngleX);
+      camera.position.y = cameraDistance * Math.sin(cameraAngleX);
+      camera.position.z = cameraDistance * Math.cos(cameraAngleY) * Math.cos(cameraAngleX);
+      camera.lookAt(CAMERA_TARGET);
+    }
+
+    /* =========================================================
+      setupControls(): 绑定控制面板滑条事件
+      - count：重建几何
+      - hue：色相偏移（对 originalColors 做 HSL 变换）
+      - size：缩放星球
+      - ring：缩放/隐藏星环
+      - intensity：亮度标量 + 音乐阶段切换
+      - right-color-slider 与 color-slider 双向同步
+    ========================================================= */
+    function setupControls() {
+      const countSlider = document.getElementById('count-slider');
+      const hueSlider = document.getElementById('hue-slider');
+      const sizeSlider = document.getElementById('size-slider');
+      const ringSlider = document.getElementById('ring-slider');
+      const colorSlider = document.getElementById('color-slider');
+      const rightColorSlider = document.getElementById('right-color-slider');
+
+      // 改粒子数量：会重建星球+星环几何
+      countSlider.addEventListener('input', (e) => {
+        currentParticleCount = parseInt(e.target.value);
+        if (currentMood && isPlanetMode) {
+          refreshPlanetGeometry();
+        }
+      });
+
+      // 色相偏移：在原始颜色基础上做 HSL hue 偏移
+      hueSlider.addEventListener('input', (e) => {
+        updateParticleColors(parseFloat(e.target.value));
+      });
+
+      // 星球整体缩放
+      sizeSlider.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        if (planetParticles) planetParticles.scale.set(val, val, val);
+      });
+
+      // 星环缩放/隐藏
+      ringSlider.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        if (ringParticles) {
+          if (val <= 0.1) {
+            ringParticles.visible = false;
+          } else {
+            ringParticles.visible = true;
+            ringParticles.scale.set(val, val, val);
+          }
+        }
+      });
+
+      /* intensity 变化的核心逻辑（主/右侧滑条共用） */
+      const onColorChange = (val) => {
+        // 亮度标量：直接 setScalar（会把 RGB 按比例缩放）
+        if (planetParticles) planetParticles.material.color.setScalar(val);
+        if (ringParticles) ringParticles.material.color.setScalar(val * 0.9);
+
+        // 根据强度区间映射到 1/2/3 阶段音乐
+        let newStage = 1;
+        if (val > 0.6 && val <= 1.1) newStage = 2;
+        else if (val > 1.1) newStage = 3;
+
+        if (newStage !== currentMusicStage) switchMusicStage(newStage);
+      };
+
+      // 主滑条 -> 同步右侧滑条
+      colorSlider.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        rightColorSlider.value = val;
+        onColorChange(val);
+      });
+
+      // 右侧滑条 -> 同步主滑条
+      rightColorSlider.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        colorSlider.value = val;
+        onColorChange(val);
+      });
+    }
+
+    /* =========================================================
+      switchMusicStage(stage):
+      - 防止频繁切换：isChangingMusic
+      - 根据 stage 选择对应文件
+      - 同步右侧图片粒子云：updateMoodImage(mood, stage)
+      - 更新 UI 文案
+    ========================================================= */
+    function switchMusicStage(stage) {
+      if (!currentMood || isChangingMusic) return;
+
+      const data = MOOD_DATA[currentMood];
+      if (!data || !data.files) return;
+
+      const fileIndex = stage - 1;
+      if (fileIndex >= data.files.length) return;
+
+      const songFile = data.files[fileIndex];
+      currentMusicStage = stage;
+
+      // 切换阶段时同步切换右侧“图片粒子云”
+      updateMoodImage(currentMood, stage);
+
+      const indicators = ["(Low Intensity)", "(Medium Intensity)", "(High Intensity)"];
+      document.getElementById('music-stage-indicator').innerText =
+        `Music Stage ${stage}: ${indicators[stage-1]}`;
+
+      // 文字闪一下强调
+      document.getElementById('music-stage-indicator').style.color = '#fff';
+      setTimeout(() => {
+        document.getElementById('music-stage-indicator').style.color = '#aaa';
+      }, 500);
+
+      // 加载并播放对应音乐
+      isChangingMusic = true;
+      if (sound.isPlaying) sound.stop();
+
+      audioLoader.load(songFile, function(buffer) {
+        sound.setBuffer(buffer);
+        sound.setLoop(true);
+        sound.setVolume(0.5);
+        sound.play();
+        isChangingMusic = false;
+      }, undefined, function() {
+        // 加载失败也要解除锁
+        isChangingMusic = false;
+      });
+    }
+
+    /* =========================================================
+      refreshPlanetGeometry():
+      - 删除旧 planetParticles/ringParticles
+      - 按 mood 选择生成算法（sphere / Lorenz / ...）
+      - 生成星环
+      - 应用当前 UI 滑条值（size/hue/intensity/ring）
+    ========================================================= */
+    function refreshPlanetGeometry() {
+      // 移除并释放旧资源（防止 GPU 内存泄漏）
+      if (planetParticles) {
+        scene.remove(planetParticles);
+        if (planetParticles.geometry) planetParticles.geometry.dispose();
+        if (planetParticles.material) planetParticles.material.dispose();
+      }
+      if (ringParticles) {
+        scene.remove(ringParticles);
+        if (ringParticles.geometry) ringParticles.geometry.dispose();
+        if (ringParticles.material) ringParticles.material.dispose();
+      }
+
+      // 按情绪调用不同的粒子生成算法（你原来的逻辑）
+      if (currentMood === 'flat') generateLorenzParticles(currentColorStart);
+      else if (currentMood === 'good') generateEpitrochoidTorusParticles(currentColorStart, currentColorEnd);
+      else if (currentMood === 'mad') generateAizawaParticles(currentColorStart, currentColorEnd);
+      else if (currentMood === 'fear') generateSnailParticles(currentColorStart, currentColorEnd);
+      else generatePlanetParticles(currentColorStart, currentColorEnd);
+
+      // 星环颜色来自 mood 数据
+      const moodInfo = MOOD_DATA[currentMood];
+      generateRingParticles(
+        new THREE.Color(moodInfo.ringColorInner),
+        new THREE.Color(moodInfo.ringColorOuter)
+      );
+
+      // 读取当前 UI 值并应用
+      const currentSize = parseFloat(document.getElementById('size-slider').value);
+      const currentHue = parseFloat(document.getElementById('hue-slider').value);
+      const currentIntensity = parseFloat(document.getElementById('color-slider').value);
+      const currentRingScale = parseFloat(document.getElementById('ring-slider').value);
+
+      if (planetParticles) {
+        planetParticles.scale.set(currentSize, currentSize, currentSize);
+        planetParticles.material.color.setScalar(currentIntensity);
+        updateParticleColors(currentHue);
+      }
+      if (ringParticles) {
+        ringParticles.scale.set(currentRingScale, currentRingScale, currentRingScale);
+        ringParticles.material.color.setScalar(currentIntensity * 0.9);
+        ringParticles.visible = currentRingScale > 0.1;
+      }
+    }
+
+    /* =========================================================
+      updateParticleColors(hueOffset):
+      - 读取 geometry.userData.originalColors（初始颜色备份）
+      - 对每个顶点颜色做 HSL hue 偏移，再写回 color attribute
+    ========================================================= */
+    function updateParticleColors(hueOffset) {
+      const targets = [planetParticles];
+
+      targets.forEach(obj => {
+        if (!obj || !obj.geometry || !obj.geometry.userData.originalColors) return;
+
+        const colors = obj.geometry.attributes.color.array;
+        const originals = obj.geometry.userData.originalColors;
+
+        const color = new THREE.Color();
+        const hsl = {};
+
+        for (let i = 0; i < originals.length; i += 3) {
+          color.setRGB(originals[i], originals[i+1], originals[i+2]);
+          color.getHSL(hsl);
+
+          let newHue = (hsl.h + hueOffset) % 1.0;
+          if (newHue < 0) newHue += 1.0;
+
+          color.setHSL(newHue, hsl.s, hsl.l);
+
+          colors[i] = color.r;
+          colors[i+1] = color.g;
+          colors[i+2] = color.b;
+        }
+
+        obj.geometry.attributes.color.needsUpdate = true;
+      });
+    }
+
+    /* =========================================================
+      createGalaxyBackground(): 银河背景粒子
+      - 50 万粒子随机分布在大立方体空间
+      - 颜色用 HSL，按 x 位置做渐变
+    ========================================================= */
+    function createGalaxyBackground() {
+      const geometry = new THREE.BufferGeometry();
+      const count = 500000;
+      const positions = [];
+      const colors = [];
+      const color = new THREE.Color();
+
+      for (let i = 0; i < count; i++) {
+        const x = (Math.random() - 0.5) * 2000;
+        const y = (Math.random() - 0.5) * 2000;
+        const z = (Math.random() - 0.5) * 2000 - 500;
+
+        positions.push(x, y, z);
+
+        const vx = (x / 2000) + 0.5;
+        color.setHSL(0.6 + vx * 0.1, 0.8, 0.8);
+        colors.push(color.r, color.g, color.b);
+      }
+
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+
+      const material = new THREE.PointsMaterial({
+        size: 2,
+        vertexColors: true,
+        map: createCircleTexture(),
+        transparent: true,
+        opacity: 0.6,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      });
+
+      galaxyParticles = new THREE.Points(geometry, material);
+      scene.add(galaxyParticles);
+    }
+
+    /* =========================================================
+      updateMoodImage(mood, stage):
+      把图片采样成“粒子云”渲染到 photoScene：
+      1) 加载图片（本地 images）
+      2) 画到 700x700 的 canvas
+      3) 对非透明像素生成粒子（position + vertex color）
+      4) geometry.userData.originalPositions 作为“基准形状”
+      5) 在 animate() 中叠加波浪 + 鼠标排斥
+    ========================================================= */
+    function updateMoodImage(mood, stage) {
+      const data = MOOD_DATA[mood];
+      if (!data || !data.images) return;
+
+      const imagePath = data.images[stage - 1];
+
+      const img = new Image();
+      img.crossOrigin = "Anonymous"; // 允许跨域采样（若图片在 CDN）
+      img.src = imagePath;
+
+      img.onload = function() {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+
+        // 采样分辨率：700x700（注意：粒子数量会非常大，可能性能吃紧）
+        const size = 700;
+        canvas.width = size;
+        canvas.height = size;
+
+        ctx.drawImage(img, 0, 0, size, size);
+
+        const imgData = ctx.getImageData(0, 0, size, size).data;
+
+        const positions = [];
+        const colors = [];
+
+        for (let y = 0; y < size; y++) {
+          for (let x = 0; x < size; x++) {
+            const index = (y * size + x) * 4;
+
+            const r = imgData[index] / 255;
+            const g = imgData[index + 1] / 255;
+            const b = imgData[index + 2] / 255;
+            const a = imgData[index + 3] / 255;
+
+            // 只对非透明像素生成粒子
+            if (a > 0.01) {
+              // 坐标居中：把像素坐标映射到 3D 平面
+              const px = (x - size/2) * 0.25;
+              const py = (size/2 - y) * 0.25;
+              const pz = (Math.random() - 0.5) * 15;
+
+              positions.push(px, py, pz);
+              colors.push(r, g, b);
+            }
+          }
+        }
+
+        // 清掉旧的粒子云
+        if (photoParticles) {
+          photoScene.remove(photoParticles);
+        }
+
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+
+        // 存储初始位置：后续“波浪目标点”基于它计算
+        geometry.userData = { originalPositions: positions.slice() };
+
+        const material = new THREE.PointsMaterial({
+          size: 0.8,
+          vertexColors: true,
+          transparent: true,
+          opacity: 0.5,
+          blending: THREE.AdditiveBlending
+        });
+
+        photoParticles = new THREE.Points(geometry, material);
+        photoScene.add(photoParticles);
+      };
+    }
+
+    /* =========================================================
+      createMoodPlanet(mood):
+      - 进入星球模式
+      - 停止 bgMusic，播放该情绪的 stage1
+      - 重置滑条值
+      - 生成星球 + 星环
+      - 自动启用分屏 + 右侧图片粒子云
+      注意：你这里 enableSplitMode() 调用了两次（末尾又调用一次）
+           逻辑上属于重复调用，但不影响阅读，我保留不改动
+    ========================================================= */
+    function createMoodPlanet(mood) {
+      // 浏览器策略：若音频上下文暂停，则恢复
+      if (listener.context.state === 'suspended') listener.context.resume();
+
+      // 星球模式：停止银河 BGM
+      if (bgMusic && bgMusic.isPlaying) {
+        bgMusic.stop();
+      }
+      if (listener.context.state === 'suspended') listener.context.resume();
+
+      currentMood = mood;
+      const moodInfo = MOOD_DATA[mood];
+
+      // 隐藏选择面板
+      const panel = document.getElementById('selection-panel');
+      panel.classList.remove('hidden');
+      panel.style.display = 'none';
+      document.getElementById('restore-ui-btn').classList.remove('visible');
+
+      // 显示返回按钮、状态栏
+      document.getElementById('back-btn').style.display = 'block';
+      document.getElementById('status-bar').style.opacity = '1';
+
+      // 停止旧情绪音乐
+      if (sound.isPlaying) sound.stop();
+
+      // 重置各滑条
+      document.getElementById('hue-slider').value = 0;
+      document.getElementById('size-slider').value = 1.0;
+      document.getElementById('ring-slider').value = 1.0;
+
+      const startVal = 0.6;
+      document.getElementById('color-slider').value = startVal;
+      document.getElementById('right-color-slider').value = startVal;
+
+      // 重置音乐阶段
+      currentMusicStage = 1;
+
+      // 应用 mood 数据：颜色/文案/音乐
+      if (moodInfo) {
+        currentColorStart = new THREE.Color(moodInfo.c1);
+        currentColorEnd = new THREE.Color(moodInfo.c2);
+
+        document.getElementById('song-title').innerText = moodInfo.name;
+        document.getElementById('music-stage-indicator').innerText = "Music Stage 1: (Low Intensity)";
+
+        const firstSong = moodInfo.files[0];
+        audioLoader.load(firstSong, function(buffer) {
+          if (sound.isPlaying) sound.stop();
+          sound.setBuffer(buffer);
+          sound.setLoop(true);
+          sound.setVolume(0.5);
+          sound.play();
+        });
+      }
+
+      // 生成星球与星环
+      refreshPlanetGeometry();
+      isPlanetMode = true;
+
+      // 隐藏已经存入银河的星球，避免干扰观察
+      savedPlanets.forEach(group => { group.visible = false; });
+
+      // 相机回到默认距离
+      cameraDistance = 100;
+      updateCameraPosition();
+
+      // 自动启用分屏
+      enableSplitMode();
+
+      // 右侧图片粒子云默认显示 stage1
+      updateMoodImage(mood, 1);
+
+      // 你原代码里这里重复调用了一次 enableSplitMode()
+      enableSplitMode();
+    }
+
+    /* 星球/星环粒子的通用材质（带圆形纹理 + additive） */
+    function getParticleMaterial() {
+      return new THREE.PointsMaterial({
+        size: 0.8,
+        vertexColors: true,
+        map: createCircleTexture(),
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        transparent: true,
+        opacity: 1
+      });
+    }
+
+    /* =========================================================
+      generatePlanetParticles(): 默认球体星球
+      - Fibonacci sphere 的分布方式（phi/theta）
+      - 颜色：c1->c2 随机 lerp，再用 x 位置微调 hue
+    ========================================================= */
+    function generatePlanetParticles(c1, c2) {
+      planetGeometry = new THREE.BufferGeometry();
+      const positions = [];
+      const colors = [];
+      const originalPositions = [];
+      const color = new THREE.Color();
+
+      for (let i = 0; i < currentParticleCount; i++) {
+        const phi = Math.acos(-1 + (2 * i) / currentParticleCount);
+        const theta = Math.sqrt(currentParticleCount * Math.PI) * phi;
+
+        const r = 30;
+        const x = r * Math.cos(theta) * Math.sin(phi);
+        const y = r * Math.sin(theta) * Math.sin(phi);
+        const z = r * Math.cos(phi);
+
+        positions.push(x, y, z);
+        originalPositions.push(x, y, z);
+
+        // 颜色渐变
+        color.lerpColors(c1, c2, Math.random());
+
+        // 进一步基于 x 做轻微 hue 漂移
+        const hsl = {};
+        color.getHSL(hsl);
+        hsl.h = (hsl.h + (x/60)*0.1) % 1.0;
+        color.setHSL(hsl.h, 0.9, 0.6);
+
+        colors.push(color.r, color.g, color.b);
+      }
+
+      planetGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      planetGeometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+
+      // 保存“初始位置”和“初始颜色”供动画与 hue 调整使用
+      planetGeometry.userData = {
+        originalPositions: originalPositions,
+        originalColors: Float32Array.from(colors)
+      };
+
+      planetParticles = new THREE.Points(planetGeometry, getParticleMaterial());
+      scene.add(planetParticles);
+    }
+
+    /* =========================================================
+      generateLorenzParticles(): Lorenz 吸引子（flat 情绪）
+    ========================================================= */
+    function generateLorenzParticles(baseColor) {
+      planetGeometry = new THREE.BufferGeometry();
+      const positions = [];
+      const colors = [];
+      const originalPositions = [];
+
+      const color = new THREE.Color();
+
+      // Lorenz 参数
+      let x = 0.1, y = 0, z = 0;
+      const sigma = 10;
+      const rho = 28;
+      const beta = 8/3;
+      const dt = 0.005;
+      const scale = 0.8;
+
+      const hsl = {};
+      baseColor.getHSL(hsl);
+
+      for (let i = 0; i < currentParticleCount; i++) {
+        const dx = sigma * (y - x);
+        const dy = x * (rho - z) - y;
+        const dz = x * y - beta * z;
+
+        x += dx * dt;
+        y += dy * dt;
+        z += dz * dt;
+
+        const px = x * scale;
+        const py = y * scale;
+        const pz = (z - 25) * scale;
+
+        positions.push(px, py, pz);
+        originalPositions.push(px, py, pz);
+
+        // 颜色：沿轨迹渐变 + pz 高度影响亮度
+        const progress = i / currentParticleCount;
+        const hue = (hsl.h + progress * 0.5 + (px * 0.01)) % 1.0;
+
+        let lightness = 0.5 + (pz / 40) * 0.3;
+        lightness = Math.max(0.4, Math.min(0.9, lightness));
+
+        color.setHSL(hue, 0.8, lightness);
+        colors.push(color.r, color.g, color.b);
+      }
+
+      planetGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      planetGeometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+      planetGeometry.userData = {
+        originalPositions: originalPositions,
+        originalColors: Float32Array.from(colors)
+      };
+
+      planetParticles = new THREE.Points(planetGeometry, getParticleMaterial());
+      planetParticles.rotation.x = -Math.PI / 2;
+      planetParticles.rotation.z = Math.PI / 4;
+      scene.add(planetParticles);
+    }
+
+    /* =========================================================
+      generateEpitrochoidTorusParticles(): (good 情绪)
+      - 通过多条线构造类似环状/花样结构
+    ========================================================= */
+    function generateEpitrochoidTorusParticles(c1, c2) {
+      planetGeometry = new THREE.BufferGeometry();
+      const positions = [];
+      const colors = [];
+      const originalPositions = [];
+      const color = new THREE.Color();
+
+      const visualScale = 7.0;
+      const numLines = 200;
+      const pointsPerLine = Math.floor(currentParticleCount / numLines);
+      let pIndex = 0;
+
+      for (let j = 0; j < numLines; j++) {
+        const v = (j / numLines) * Math.PI * 2;
+
+        for (let k = 0; k < pointsPerLine; k++) {
+          if (pIndex >= currentParticleCount) break;
+
+          const u = (k / pointsPerLine) * Math.PI * 2;
+
+          // 原始参数方程
+          const rawX = 5 * Math.sin(2 * u) * Math.sin(v / 2);
+          const rawY = 5 * Math.sin(2 * u) * Math.cos(v);
+          const rawZ = 5 * Math.cos(2 * u) * Math.sin(v / 2);
+
+          const px = rawX * visualScale;
+          const py = rawY * visualScale;
+          const pz = rawZ * visualScale;
+
+          positions.push(px, py, pz);
+          originalPositions.push(px, py, pz);
+
+          // 颜色：沿 v 在 c1->c2 渐变，再沿 u 旋转 hue
+          const progressU = k / pointsPerLine;
+          const progressV = j / numLines;
+          color.lerpColors(c1, c2, progressV);
+
+          const hsl = {};
+          color.getHSL(hsl);
+          hsl.h = (hsl.h + progressU * 0.8 + progressV * 0.2) % 1.0;
+          hsl.l = 0.5 + 0.3 * Math.sin(u * 4 + v * 2);
+          hsl.s = 1.0;
+
+          color.setHSL(hsl.h, hsl.s, hsl.l);
+          colors.push(color.r, color.g, color.b);
+          pIndex++;
+        }
+      }
+
+      planetGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      planetGeometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+      planetGeometry.userData = {
+        originalPositions: originalPositions,
+        originalColors: Float32Array.from(colors)
+      };
+
+      planetParticles = new THREE.Points(planetGeometry, getParticleMaterial());
+      planetParticles.rotation.z = Math.PI / 4;
+      planetParticles.rotation.x = Math.PI / 6;
+      scene.add(planetParticles);
+    }
+
+    /* =========================================================
+      generateAizawaParticles(): Aizawa 吸引子（mad 情绪）
+    ========================================================= */
+    function generateAizawaParticles(c1, c2) {
+      planetGeometry = new THREE.BufferGeometry();
+      const positions = [];
+      const colors = [];
+      const originalPositions = [];
+      const color = new THREE.Color();
+
+      const scale = 30;
+      const dt = 0.01;
+      const a = 0.95, b = 0.7, c = 0.6, d = 3.5, e = 0.25, f = 0.1;
+      let x = 0.1, y = 0, z = 0;
+
+      for (let i = 0; i < currentParticleCount; i++) {
+        const dx = (z - b) * x - d * y;
+        const dy = d * x + (z - b) * y;
+        const dz = c + a * z - (z*z*z)/3.0 - (x*x + y*y) * (1 + e * z) + f * z * x * x * x;
+
+        x += dx * dt;
+        y += dy * dt;
+        z += dz * dt;
+
+        const px = x * scale;
+        const py = z * scale;
+        const pz = y * scale;
+
+        positions.push(px, py, pz);
+        originalPositions.push(px, py, pz);
+
+        // 颜色：沿 i 线性从 c1->c2，且由速度影响亮度
+        color.lerpColors(c1, c2, i / currentParticleCount);
+
+        const hsl = {};
+        color.getHSL(hsl);
+
+        hsl.h = (hsl.h + (py * 0.01)) % 1.0;
+
+        const velocity = Math.sqrt(dx*dx + dy*dy + dz*dz);
+        hsl.l = 0.5 + Math.min(0.5, velocity * 0.1);
+
+        // 少量“闪点”
+        if (Math.random() > 0.98) hsl.l = 1.0;
+
+        color.setHSL(hsl.h, 0.9, hsl.l);
+        colors.push(color.r, color.g, color.b);
+      }
+
+      planetGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      planetGeometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+      planetGeometry.userData = {
+        originalPositions: originalPositions,
+        originalColors: Float32Array.from(colors)
+      };
+
+      planetParticles = new THREE.Points(planetGeometry, getParticleMaterial());
+      scene.add(planetParticles);
+    }
+
+    /* =========================================================
+      generateSnailParticles(): 蜗牛/螺旋结构（fear 情绪）
+    ========================================================= */
+    function generateSnailParticles(c1, c2) {
+      planetGeometry = new THREE.BufferGeometry();
+      const positions = [];
+      const colors = [];
+      const originalPositions = [];
+      const color = new THREE.Color();
+
+      const scale = 2.0;
+      const numLines = 150;
+      const pointsPerLine = Math.floor(currentParticleCount / numLines);
+      let pIndex = 0;
+
+      for (let j = 0; j < numLines; j++) {
+        const v = (j / numLines) * Math.PI * 2;
+
+        for (let k = 0; k < pointsPerLine; k++) {
+          if (pIndex >= currentParticleCount) break;
+
+          const u = (k / pointsPerLine) * Math.PI * 6;
+
+          const px = scale * u * Math.cos(u) * Math.sin(v);
+          const py = scale * u * Math.cos(v);
+          const pz = -scale * u * Math.sin(u) * Math.sin(v);
+
+          positions.push(px, py, pz);
+          originalPositions.push(px, py, pz);
+
+          // 颜色：沿 u 的进度从 c1->c2
+          const progress = u / (Math.PI * 6);
+          color.lerpColors(c1, c2, progress);
+
+          const hsl = {};
+          color.getHSL(hsl);
+
+          hsl.h = (hsl.h + v * 0.05) % 1.0;
+          hsl.l = 0.5 + 0.4 * Math.sin(u * 10);
+
+          if (Math.random() > 0.97) hsl.l = 0.95;
+
+          color.setHSL(hsl.h, 0.9, hsl.l);
+          colors.push(color.r, color.g, color.b);
+          pIndex++;
+        }
+      }
+
+      planetGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      planetGeometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+      planetGeometry.userData = {
+        originalPositions: originalPositions,
+        originalColors: Float32Array.from(colors)
+      };
+
+      planetParticles = new THREE.Points(planetGeometry, getParticleMaterial());
+      planetParticles.rotation.z = Math.PI / 2;
+      planetParticles.rotation.x = Math.PI / 6;
+      scene.add(planetParticles);
+    }
+
+    /* =========================================================
+      generateRingParticles(): 星环粒子
+      - ringCount = particleCount * 0.6
+      - 内外半径：70~130
+      - 颜色：cStart->cEnd 按半径插值
+    ========================================================= */
+    function generateRingParticles(cStart, cEnd) {
+      ringGeometry = new THREE.BufferGeometry();
+
+      const positions = [];
+      const colors = [];
+      const color = new THREE.Color();
+
+      const ringCount = Math.floor(currentParticleCount * 0.6);
+
+      for (let i = 0; i < ringCount; i++) {
+        const innerR = 70;
+        const outerR = 130;
+
+        const r = innerR + Math.random() * (outerR - innerR);
+        const theta = Math.random() * Math.PI * 2;
+
+        const x = r * Math.cos(theta);
+        const y = (Math.random() - 0.5) * 4;
+        const z = r * Math.sin(theta);
+
+        positions.push(x, y, z);
+
+        const alpha = (r - innerR) / (outerR - innerR);
+        color.lerpColors(cStart, cEnd, alpha);
+
+        // 稍微随机亮度，让星环更“闪”
+        const hsl = {};
+        color.getHSL(hsl);
+        hsl.l = 0.5 + Math.random() * 0.5;
+        hsl.s = 0.4;
+        color.setHSL(hsl.h, hsl.s, hsl.l);
+
+        colors.push(color.r, color.g, color.b);
+      }
+
+      ringGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      ringGeometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+      ringGeometry.userData = { originalColors: Float32Array.from(colors) };
+
+      const material = new THREE.PointsMaterial({
+        size: 0.8,
+        vertexColors: true,
+        map: createCircleTexture(),
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        transparent: true,
+        opacity: 0.7
+      });
+
+      ringParticles = new THREE.Points(ringGeometry, material);
+      ringParticles.rotation.x = Math.PI / 40;
+      ringParticles.rotation.z = Math.PI;
+      scene.add(ringParticles);
+    }
+
+    /* =========================================================
+      animate(): 主循环
+      - 更新银河旋转、蝴蝶
+      - 星球模式：粒子“呼吸” + 爆炸散开/回收
+      - 分屏：右侧照片粒子云 波浪+鼠标排斥
+      - 最后渲染主场景 + photoScene
+    ========================================================= */
+    function animate() {
+      requestAnimationFrame(animate);
+
+      // 银河背景缓慢旋转
+      if (galaxyParticles) {
+        galaxyParticles.rotation.y += 0.0005;
+        galaxyParticles.rotation.z += 0.0002;
+      }
+
+      // 蝴蝶更新
+      updateButterflies();
+
+      // 非星球模式时：存入银河的星球缓慢旋转
+      if (!isPlanetMode) {
+        savedPlanets.forEach(group => { group.rotation.y += 0.0005; });
+      }
+
+      // 星球模式：主星球动画（含爆炸/回收）
+      if (isPlanetMode && planetParticles) {
+        // 爆炸进度控制
+        if (isExploding) {
+          explosionFactor += 0.015;
+          if (explosionFactor >= 1.5) {
+            isExploding = false;
+            isReturning = true;
+          }
+        } else if (isReturning) {
+          explosionFactor -= 0.01;
+          if (explosionFactor <= 0) {
+            explosionFactor = 0;
+            isReturning = false;
+          }
+        }
+
+        const progress = Math.min(1.0, Math.max(0.0, explosionFactor));
+
+        // 音频驱动强度：平均频率 / 256
+        let strength = 0;
+        if (sound.isPlaying) {
+          strength = analyser.getAverageFrequency() / 256.0;
+        }
+
+        // 自转
+        planetParticles.rotation.y += 0.002;
+        if (ringParticles) ringParticles.rotation.y -= 0.0005;
+
+        // 对每个粒子：
+        // 1) 先做“随音频呼吸”的缩放 p
+        // 2) 若 progress>0 再做散射（沿径向 + 噪声）
+        const positions = planetParticles.geometry.attributes.position.array;
+        const originals = planetParticles.geometry.userData.originalPositions;
+
+        for (let i = 0; i < positions.length; i += 3) {
+          const ox = originals[i];
+          const oy = originals[i+1];
+          const oz = originals[i+2];
+
+          const time = Date.now() * 0.002;
+
+          // 音频呼吸系数
+          const p = 1 + (strength * 0.2 * Math.sin(i * 0.1 + time));
+          let tx = ox * p, ty = oy * p, tz = oz * p;
+
+          if (progress > 0) {
+            const len = Math.sqrt(ox*ox + oy*oy + oz*oz) || 1;
+            const dirX = ox/len;
+            const dirY = oy/len;
+            const dirZ = oz/len;
+
+            // 简单噪声，让散开更“乱”
+            const noiseX = Math.sin(i * 0.1 + time) * 20;
+            const noiseY = Math.cos(i * 0.12 + time) * 20;
+            const noiseZ = Math.sin(i * 0.15 + time) * 20;
+
+            const scatterDist = 80 * progress;
+
+            tx = tx + (dirX * scatterDist) + (noiseX * progress);
+            ty = ty + (dirY * scatterDist) + (noiseY * progress);
+            tz = tz + (dirZ * scatterDist) + (noiseZ * progress);
+          }
+
+          positions[i]   = tx;
+          positions[i+1] = ty;
+          positions[i+2] = tz;
+        }
+
+        planetParticles.geometry.attributes.position.needsUpdate = true;
+      }
+
+      /* ---------------------------------------------------------
+        分屏右侧照片粒子云动画（仅分屏模式下渲染）
+        - wave：基于 originalPositions 的微小漂浮
+        - mouse repel：鼠标附近粒子推开 + z 随机扰动
+        - recovery：每帧向 wave 目标点回归
+      --------------------------------------------------------- */
+      if (photoParticles && isSplitMode) {
+        const time = Date.now() * 0.001;
+
+        const positions = photoParticles.geometry.attributes.position.array;
+        const originals = photoParticles.geometry.userData.originalPositions;
+
+        // 将鼠标 NDC 转为 3D 空间中 z=0 平面上的点
+        photoRaycaster.setFromCamera(photoMouse, photoCamera);
+        let mouse3D = new THREE.Vector3();
+        const planeZ = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+        photoRaycaster.ray.intersectPlane(planeZ, mouse3D);
+
+        const scatterRadius = 25;     // 影响半径
+        const scatterStrength = 60;   // 推开力度
+        const recoverySpeed = 0.08;   // 回归速度（越大越“粘回去”）
+
+        for (let i = 0; i < positions.length; i += 3) {
+          // A. 波浪目标点（基于 originalPositions）
+          const waveX = originals[i]   + Math.cos(time * 0.5 + i * 0.01) * 0.5;
+          const waveY = originals[i+1] + Math.sin(time * 0.5 + i * 0.01) * 0.5;
+          const waveZ = originals[i+2] + Math.sin(time + i) * 0.5;
+
+          // B. 当前点与鼠标点距离 -> 计算排斥偏移
+          let curX = positions[i];
+          let curY = positions[i+1];
+          let curZ = positions[i+2];
+
+          const dx = curX - mouse3D.x;
+          const dy = curY - mouse3D.y;
+          const dz = curZ - mouse3D.z;
+
+          const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
+
+          let offsetX = 0, offsetY = 0, offsetZ = 0;
+
+          // dist<scatterRadius 且鼠标有效时产生排斥
+          if (dist < scatterRadius && photoMouse.x !== -999) {
+            const ratio = (scatterRadius - dist) / scatterRadius;
+            const force = ratio * scatterStrength;
+
+            // 防止除 0：dist 很小也要处理
+            const safeDist = dist || 0.0001;
+
+            offsetX = (dx / safeDist) * force;
+            offsetY = (dy / safeDist) * force;
+
+            // Z 轴加随机扰动，让散开更立体
+            offsetZ = (dz / safeDist) * force + (Math.random() - 0.5) * 10 * ratio;
+          }
+
+          // C. 插值：当前位置向 “波浪目标 + 排斥偏移” 回归
+          positions[i]   += (waveX + offsetX - positions[i])   * recoverySpeed;
+          positions[i+1] += (waveY + offsetY - positions[i+1]) * recoverySpeed;
+          positions[i+2] += (waveZ + offsetZ - positions[i+2]) * recoverySpeed;
+        }
+
+        photoParticles.geometry.attributes.position.needsUpdate = true;
+
+        // 轻微左右摆动（整体旋转）
+        photoParticles.rotation.y = Math.sin(time * 0.2) * 0.05;
+
+        // 渲染右侧粒子云
+        photoRenderer.render(photoScene, photoCamera);
+      }
+
+      // 渲染主场景（银河/星球）
+      renderer.render(scene, camera);
+    }
+
+    /* =========================================================
+      createCircleTexture(): 粒子点的圆形渐变纹理（用于 PointsMaterial.map）
+    ========================================================= */
+    function createCircleTexture() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 32; canvas.height = 32;
+
+      const ctx = canvas.getContext('2d');
+      const gradient = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+      gradient.addColorStop(0, 'rgba(255,255,255,1)');
+      gradient.addColorStop(0.2, 'rgba(255,255,255,0.8)');
+      gradient.addColorStop(0.5, 'rgba(255,255,255,0.2)');
+      gradient.addColorStop(1, 'rgba(0,0,0,0)');
+
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, 32, 32);
+
+      return new THREE.CanvasTexture(canvas);
+    }
+
+    /* =========================================================
+      getSafePlanetPosition(): 给“存入银河”的星球找一个不太重叠的位置
+      - 尝试最多 MAX_POSITION_ATTEMPTS 次
+      - 距离现有 savedPlanets >= SAFE_DISTANCE
+    ========================================================= */
+    function getSafePlanetPosition() {
+      let newPosition = new THREE.Vector3();
+      let attempts = 0;
+      let isSafe = false;
+
+      while (!isSafe && attempts < MAX_POSITION_ATTEMPTS) {
+        const r = 80 + Math.random() * 150;
+        const angle = Math.random() * Math.PI * 2;
+        const y = (Math.random() - 0.5) * 100;
+
+        newPosition.set(
+          Math.cos(angle) * r,
+          y,
+          Math.sin(angle) * r - 50
+        );
+
+        isSafe = true;
+        for (let i = 0; i < savedPlanets.length; i++) {
+          if (newPosition.distanceTo(savedPlanets[i].position) < SAFE_DISTANCE) {
+            isSafe = false;
+            break;
+          }
+        }
+        attempts++;
+      }
+
+      return newPosition;
+    }
+
+    /* =========================================================
+      resetView(): 退出星球模式 -> 回到银河主界面
+      - 关闭分屏
+      - 把当前星球/星环打包成 Group 存入 savedPlanets
+      - 停止情绪音乐，恢复 bgMusic
+      - 还原相机姿态
+    ========================================================= */
+    function resetView() {
+      // 退出星球模式前先关闭分屏
+      disableSplitMode();
+
+      // 显示选择面板
+      const panel = document.getElementById('selection-panel');
+      panel.style.display = 'block';
+
+      // 隐藏返回按钮、状态栏
+      document.getElementById('back-btn').style.display = 'none';
+      document.getElementById('status-bar').style.opacity = '0';
+      document.getElementById('restore-ui-btn').classList.remove('visible');
+
+      // 隐藏 controls（全屏模式控件）
+      const controls = document.getElementById('controls');
+      controls.classList.remove('active');
+      setTimeout(() => controls.style.display = 'none', 800);
+
+      // 相机复位
+      cameraDistance = 100;
+      cameraAngleX = 0;
+      cameraAngleY = 0;
+      updateCameraPosition();
+
+      // 将当前星球保存为一个更小、更淡的“记忆星球”
+      if (planetParticles) {
+        const savedGroup = new THREE.Group();
+        savedGroup.add(planetParticles);
+        if (ringParticles) savedGroup.add(ringParticles);
+
+        savedGroup.position.copy(getSafePlanetPosition());
+
+        // 缩小到 0.4~0.5
+        const scale = 0.4 + Math.random() * 0.1;
+        savedGroup.scale.set(scale, scale, scale);
+
+        // 让材质更淡、更透明，变成背景装饰
+        savedGroup.traverse((child) => {
+          if (child.material) {
+            child.material = child.material.clone();
+            child.material.opacity = 0.05 + Math.random() * 0.1;
+            child.material.color.multiplyScalar(0.4 + Math.random() * 0.2);
+            child.material.depthWrite = false;
+          }
+        });
+
+        scene.add(savedGroup);
+        savedPlanets.push(savedGroup);
+
+        // 注意：此处把 planetParticles/ringParticles “交给” savedGroup 管理
+        planetParticles = null;
+        ringParticles = null;
+      }
+
+      // 停止情绪音乐
+      if (sound.isPlaying) sound.stop();
+
+      // 恢复显示已保存星球
+      savedPlanets.forEach(group => { group.visible = true; });
+
+      // 恢复背景音乐
+      if (bgMusic && !bgMusic.isPlaying) bgMusic.play();
+
+      isPlanetMode = false;
+    }
+  </script>
+</body>
+</html>
